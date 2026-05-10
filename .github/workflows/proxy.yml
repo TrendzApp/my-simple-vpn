@@ -1,0 +1,70 @@
+name: Fast Proxy Server
+
+on:
+  workflow_dispatch:
+
+jobs:
+  proxy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Start WARP Container
+        run: |
+          echo "🚀 Starting Cloudflare WARP..."
+          
+          docker network create warp-net || true
+          
+          docker run -d \
+            --name warp \
+            --restart=always \
+            --network warp-net \
+            -p 1080:1080 \
+            --cap-add NET_ADMIN \
+            --sysctl net.ipv6.conf.all.disable_ipv6=0 \
+            --sysctl net.ipv4.conf.all.src_valid_mark=1 \
+            -v warp-data:/var/lib/cloudflare-warp \
+            caomingjun/warp
+          
+          echo "⏳ Waiting 15 seconds..."
+          sleep 15
+          
+          echo "✅ WARP is ready on localhost:1080"
+
+      - name: Setup Cloudflare Tunnel
+        run: |
+          echo "📡 Installing cloudflared..."
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared-linux-amd64.deb
+          
+          echo "🌐 Starting public tunnel..."
+          cloudflared tunnel --url socks5://localhost:1080 > tunnel.log 2>&1 &
+          
+          sleep 10
+          
+          PROXY_URL=$(grep -oP 'https://[a-z0-9-]+\.trycloudflare\.com' tunnel.log | head -1)
+          
+          if [ -z "$PROXY_URL" ]; then
+            echo "❌ Failed to get tunnel URL"
+            cat tunnel.log
+            exit 1
+          fi
+          
+          PROXY_HOST=$(echo $PROXY_URL | sed 's|https://||')
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ پروکسی شما آماده است!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "🔧 تنظیمات FoxyProxy:"
+          echo "   Type: SOCKS5"
+          echo "   Host: $PROXY_HOST"
+          echo "   Port: 443"
+          echo "   ✔️ Send DNS through SOCKS5"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Keep Alive
+        run: |
+          echo "⏰ Proxy will stay active for 6 hours..."
+          sleep 21600
